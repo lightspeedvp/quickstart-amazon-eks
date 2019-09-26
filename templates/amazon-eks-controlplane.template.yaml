@@ -1,6 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "Deploys the EKS control plane (qs-1p7nknofn)"
 Parameters:
+  EksClusterName:
+    Type: String
   SecurityGroupIds:
     Type: List<AWS::EC2::SecurityGroup::Id>
   SubnetIds:
@@ -42,6 +44,7 @@ Resources:
   EKS:
     Type: "AWS::EKS::Cluster"
     Properties:
+      Name: !Ref EksClusterName
       ResourcesVpcConfig:
         SecurityGroupIds: !Ref SecurityGroupIds
         SubnetIds: !Ref SubnetIds
