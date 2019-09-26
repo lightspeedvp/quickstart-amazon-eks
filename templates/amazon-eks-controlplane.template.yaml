@@ -4,6 +4,8 @@ Metadata:
   QSLint:
     Exclusions: [W9002, W9003, W9004, W9006]
 Parameters:
+  EksClusterName:
+    Type: String
   SecurityGroupIds:
     Type: List<AWS::EC2::SecurityGroup::Id>
   SubnetIds:
@@ -85,6 +87,7 @@ Resources:
   EKS:
     Type: "AWSQS::EKS::Cluster"
     Properties:
+      Name: !Ref EksClusterName
       ResourcesVpcConfig:
         SecurityGroupIds: !Ref SecurityGroupIds
         SubnetIds: !Ref SubnetIds

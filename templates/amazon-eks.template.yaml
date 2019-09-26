@@ -4,6 +4,8 @@ Metadata:
   QSLint:
     Exclusions: [W9002, W9003, W9004, W9006]
 Parameters:
+  EksClusterName:
+    Type: String
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
   NodeAMIOS:
@@ -14,11 +16,11 @@ Parameters:
     Type: String
   QSS3BucketName:
     AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
-    Default: aws-quickstart
+    Default: lightspeed-dev
     Type: String
   QSS3KeyPrefix:
     AllowedPattern: ^[0-9a-zA-Z-/.]*$
-    Default: quickstart-amazon-eks/
+    Default: cloudformation/eks/
     Type: String
   QSS3BucketRegion:
     Default: 'us-east-1'
@@ -27,6 +29,7 @@ Parameters:
     Type: String
   RemoteAccessCIDR:
     AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Default: 0.0.0.0/0
     Type: String
   EKSPublicAccessCIDRs:
     Type: List<String>
@@ -150,7 +153,7 @@ Parameters:
     Default: Default
     Type: String
   NodeVolumeSize:
-    Default: 20
+    Default: 30
     Type: String
   CustomAmiId:
     Default: ""
@@ -194,7 +197,7 @@ Parameters:
   ProvisionClusterAutoScaler:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
-    Default: "Disabled"
+    Default: "Enabled"
   ProvisionMonitoringStack:
     Type: String
     AllowedValues: [ "Prometheus + Grafana", "None" ]
@@ -236,7 +239,7 @@ Parameters:
   EfsStorageClass:
     Type: String
     AllowedValues: [ Enabled, Disabled ]
-    Default: Disabled
+    Default: Enabled
   EfsPerformanceMode:
     Type: String
     AllowedValues: [ generalPurpose, maxIO ]
@@ -490,6 +493,7 @@ Resources:
         - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
+        EksClusterName: !Ref EksClusterName
         SecurityGroupIds: !Ref ControlPlaneSecurityGroup
         SubnetIds: !If
           - EnablePublicSubnets

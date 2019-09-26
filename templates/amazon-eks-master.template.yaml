@@ -99,7 +99,7 @@ Metadata:
       NumberOfNodes:
         default: Number of nodes
       MaxNumberOfNodes:
-        default: Maximum number of nodes  
+        default: Maximum number of nodes
       NodeGroupName:
         default: Node group name
       NodeVolumeSize:
@@ -194,7 +194,7 @@ Parameters:
     ConstraintDescription: Quick Start bucket name can include numbers, lowercase
       letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
       (-).
-    Default: aws-quickstart
+    Default: lightspeed-dev
     Description: S3 bucket name for the Quick Start assets. This string can include
       numbers, lowercase letters, uppercase letters, and hyphens (-). It cannot start
       or end with a hyphen (-).
@@ -203,7 +203,7 @@ Parameters:
     AllowedPattern: ^[0-9a-zA-Z-/.]*$
     ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
       uppercase letters, hyphens (-), dots(.) and forward slash (/).
-    Default: quickstart-amazon-eks/
+    Default: cloudformation/eks/
     Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
       can include numbers, lowercase letters, uppercase letters, hyphens (-), dots(.) and
       forward slash (/).
@@ -216,6 +216,7 @@ Parameters:
   RemoteAccessCIDR:
     AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
     ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Default: 0.0.0.0/0
     Description: The CIDR IP range that is permitted to access the instances. We recommend
       that you set this value to a trusted IP range.
     Type: String
@@ -361,13 +362,13 @@ Parameters:
   MaxNumberOfNodes:
     Default: 3
     Description: The maximum number of Amazon EKS node instances. The default is three node.
-    Type: Number  
+    Type: Number
   NodeGroupName:
     Default: Default
     Description: The name for EKS node group.
     Type: String
   NodeVolumeSize:
-    Default: 20
+    Default: 30
     Description: "The size for the node's root EBS volumes."
     Type: String
   ManagedNodeGroup:
@@ -392,12 +393,12 @@ Parameters:
   ClusterAutoScaler:
     Type: String
     AllowedValues: [ Enabled, Disabled ]
-    Default: Disabled
+    Default: Enabled
     Description: Choose "Enabled" to enable Kubernetes cluster autoscaler.
   EfsStorageClass:
     Type: String
     AllowedValues: [ Enabled, Disabled ]
-    Default: Disabled
+    Default: Enabled
     Description: Choose Enabled to enable EFS storage class, which will create the required EFS volume.
   EfsPerformanceMode:
     Type: String
