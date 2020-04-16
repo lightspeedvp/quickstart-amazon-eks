@@ -39,7 +39,8 @@ Metadata:
           - NodeVolumeSize
           - ManagedNodeGroup
           - ManagedNodeGroupAMIType
-          - AdditionalEKSAdminArns
+          - AdditionalEKSAdminUserArn
+          - AdditionalEKSAdminRoleArn
           - KubernetesVersion
       - Label:
           default: AWS Quick Start configuration
@@ -93,8 +94,10 @@ Metadata:
         default: Private subnet 3 ID
       VPCID:
         default: VPC ID
-      AdditionalEKSAdminArns:
-        default: Additional EKS admin ARNs
+      AdditionalEKSAdminUserArn:
+        default: Additional EKS admin ARN (IAM User)
+      AdditionalEKSAdminRoleArn:
+        default: Additional EKS admin ARN (IAM Role)
       KubernetesVersion:
         default: Kubernetes version
       LambdaZipsBucketName:
@@ -149,10 +152,49 @@ Parameters:
     Default: 0.0.0.0/0
     Description: The CIDR IP range that is permitted to access the instances. We recommend that you set this value to a trusted IP range.
     Type: String
-  AdditionalEKSAdminArns:
+  EKSPublicAccessCIDRs:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: The public CIDR IP ranges that are permitted to access the Kubernetes API. These values are only used
+      if EKSPublicAccessEndpoint is enabled. Can't contain private IP ranges.
+    Type: List<String>
+    Default: 0.0.0.0/0
+  EKSPublicAccessEndpoint:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+    Description: Configure access to the Kubernetes API server endpoint from outside of your VPC.
+  EKSPrivateAccessEndpoint:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Enabled
+    Description: Configure access to the Kubernetes API server endpoint from within your VPC. If this is disabled,
+      EKSPublicAccessEndpoint must be enabled.
+  EKSClusterLoggingTypes:
+    Type: List<String>
+    Default: "api,audit,authenticator,controllerManager,scheduler"
+    AllowedPattern: "^(api|audit|authenticator|controllerManager|scheduler|,)*$"
+    ConstraintDescription: Valid logging types are api, audit, authenticator, controllerManager, scheduler.
+    Description: EKS cluster control plane logs to be exported to CloudWatch Logs.
+  EKSEncryptSecrets:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Enabled
+    Description: Envelope encryption of Kubernetes secrets using KMS.
+  EKSEncryptSecretsKmsKeyArn:
+    Type: String
     Default: ""
-    Description: "[OPTIONAL] Comma separated list of IAM user/role Amazon Resource Names (ARNs) to be granted admin access to the EKS cluster"
-    Type: CommaDelimitedList
+    Description: "[OPTIONAL] KMS key to use for envelope encryption of Kubernetes secrets. If this parameter is omitted
+      A key will be created for the cluster. The CMK must be symmetric, created in the same region as the cluster, and
+      if the CMK was created in a different account, the user must have access to the CMK."
+  AdditionalEKSAdminUserArn:
+    Default: ""
+    Description: "[OPTIONAL] IAM user Amazon Resource Name (ARN) to be granted admin access to the EKS cluster"
+    Type: String
+  AdditionalEKSAdminRoleArn:
+    Default: ""
+    Description: "[OPTIONAL] IAM role Amazon Resource Name (ARN) to be granted admin access to the EKS cluster"
+    Type: String
   NodeInstanceType:
     Default: t3.medium
     AllowedValues:
@@ -254,7 +296,7 @@ Parameters:
   ManagedNodeGroup:
     AllowedValues: [ "yes", "no" ]
     Default: "no"
-    Description: Choose if you want to use a managed node group. If you select "yes", you must select Kubernetes Version 1.14 or higher.
+    Description: Choose if you want to use a managed node group. If you select "yes", you must select Kubernetes version 1.14 or higher.
     Type: String
   ManagedNodeGroupAMIType:
     Description: Select one of the two AMI Types for your Managed Node Group (Only applies if you selected Managed Node Group "yes". ). GPU instance types should use the AL2_x86_64_GPU AMI type, which uses the Amazon EKS-optimized Linux AMI with GPU support. Non-GPU instances should use the AL2_x86_64 AMI type, which uses the Amazon EKS-optimized Linux AMI.
@@ -397,7 +439,8 @@ Resources:
         LambdaZipsBucketName: !Ref LambdaZipsBucketName
         NodeInstanceType: !Ref NodeInstanceType
         RemoteAccessCIDR: !Ref RemoteAccessCIDR
-        AdditionalEKSAdminArns: !Join [ ",", !Ref AdditionalEKSAdminArns ]
+        AdditionalEKSAdminUserArn: !Ref AdditionalEKSAdminUserArn
+        AdditionalEKSAdminRoleArn: !Ref AdditionalEKSAdminRoleArn
         VPCID: !Ref VPCID
         KubernetesVersion: !Ref KubernetesVersion
         ProvisionClusterAutoScaler: !Ref ClusterAutoScaler
@@ -406,9 +449,13 @@ Resources:
         EfsThroughputMode: !Ref EfsThroughputMode
         EfsProvisionedThroughputInMibps: !Ref EfsProvisionedThroughputInMibps
         ProvisionBastionHost: !Ref ProvisionBastionHost
+        EKSPublicAccessCIDRs: !Join [ ',', !Ref 'EKSPublicAccessCIDRs' ]
+        EKSPublicAccessEndpoint: !Ref EKSPublicAccessEndpoint
+        EKSPrivateAccessEndpoint: !Ref EKSPrivateAccessEndpoint
+        EKSClusterLoggingTypes: !Join [ ',', !Ref 'EKSClusterLoggingTypes' ]
+        EKSEncryptSecrets: !Ref EKSEncryptSecrets
+        EKSEncryptSecretsKmsKeyArn: !Ref EKSEncryptSecretsKmsKeyArn
 Outputs:
-  KubeConfigPath:
-    Value: !GetAtt EKSStack.Outputs.KubeConfigPath
   HelmLambdaArn:
     Value: !GetAtt EKSStack.Outputs.HelmLambdaArn
   KubeManifestLambdaArn:
