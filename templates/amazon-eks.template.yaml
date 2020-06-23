@@ -136,6 +136,10 @@ Parameters:
     AllowedValues: [ "AL2_x86_64", " AL2_x86_64_GPU"]
     Default: "AL2_x86_64"
     Type: String
+  MangedNodeGroupLabel:
+    Description: Add a custom name label to the Managed Node Group Nodes. If you dont do this then a default one will be added for you.
+    Type: String
+    Default: ''
   LambdaZipsBucketName:
     Type: String
     Default: ''
@@ -160,12 +164,20 @@ Parameters:
     Default: ""
   KubernetesVersion:
     Type: String
-    AllowedValues: [ "1.13", "1.14", "1.15" ]
-    Default: "1.15"
+    AllowedValues: [ "1.13", "1.14", "1.15", "1.16" ]
+    Default: "1.16"
   ProvisionClusterAutoScaler:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
     Default: "Enabled"
+  IamOidcProvider:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Disabled"
+  ProvisionALBIngressController:
+    Type: String
+    AllowedValues: [ "Enabled", "Disabled" ]
+    Default: "Disabled"
   ProvisionMonitoringStack:
     Type: String
     AllowedValues: [ "Prometheus + Grafana", "None" ]
@@ -175,8 +187,8 @@ Parameters:
     Default: ""
   BastionOS:
     Type: String
-    AllowedValues: [ "Amazon-Linux-HVM", "CentOS-7-HVM", "Ubuntu-Server-14.04-LTS-HVM", "Ubuntu-Server-16.04-LTS-HVM", "SUSE-SLES-15-HVM" ]
-    Default: "Amazon-Linux-HVM"
+    AllowedValues: [ "Amazon-Linux2-HVM", "Amazon-Linux-HVM", "CentOS-7-HVM", "Ubuntu-Server-14.04-LTS-HVM", "Ubuntu-Server-16.04-LTS-HVM", "SUSE-SLES-15-HVM" ]
+    Default: "Amazon-Linux2-HVM"
   ProvisionBastionHost:
     Type: String
     AllowedValues: [ "Enabled", "Disabled" ]
@@ -218,12 +230,41 @@ Parameters:
     Default: bursting
   EfsProvisionedThroughputInMibps:
     Type: Number
-    MinValue: 0
-    Default: 0
+    MinValue: '0'
+    MaxValue: '1024'
+    Default: '0'
   HttpProxy:
     Type: String
     Default: ""
+  FargateNamespaces:
+    Type: String
+    Default: ""
+  FargateLabels:
+    Type: String
+    Default: ""
+  EKSClusterName:
+    Type: String
+    Default: ""
+    Description: "[OPTIONAL] Name for the EKS cluster, if left blank one will be auto-generated."
+  SnykIntegrationId:
+    Type: String
+    Default: ""
+  SnykIntegration:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
+  NewRelicLicenseKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+  NewRelicIntegration:
+    Type: String
+    AllowedValues: [Enabled, Disabled]
+    Default: Disabled
 Conditions:
+  EnableSnyk: !Equals [ !Ref SnykIntegration, Enabled]
+  EnableNewRelic: !Equals [ !Ref NewRelicIntegration, Enabled]
+  EnableFargate: !Not [!Equals [ !Ref FargateNamespaces, ""]]
   3AZDeployment: !Not [!Equals [!Ref PrivateSubnet3ID, ""]]
   2AZDeployment: !Or
     - !Not [!Equals [!Ref PrivateSubnet2ID, ""]]
@@ -237,9 +278,11 @@ Conditions:
   CustomBastionRole: !Not [!Equals [!Ref 'BastionIAMRoleName', '']]
   AdditionalVars: !Not [!Equals [!Ref 'BastionVariables', '']]
   EnableClusterAutoScaler: !Equals [!Ref 'ProvisionClusterAutoScaler', 'Enabled']
+  EnableALBIngressController: !Equals [!Ref 'ProvisionALBIngressController', 'Enabled']
   EnableMonitoringPrometheusGrafana: !Equals [!Ref 'ProvisionMonitoringStack', 'Prometheus + Grafana']
   EnableEfs: !Equals [!Ref 'EfsStorageClass', 'Enabled']
   UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
+  GenerateClusterName: !Equals [!Ref 'EKSClusterName', '']
 Resources:
   BastionEksPermissions:
     Condition: EnableBastion
@@ -328,6 +371,7 @@ Resources:
         CustomAmiId: !Ref CustomAmiId
         ManagedNodeGroup: !Ref ManagedNodeGroup
         ManagedNodeGroupAMIType: !Ref ManagedNodeGroupAMIType
+        MangedNodeGroupLabel: !Ref MangedNodeGroupLabel
         EKSControlPlane: !GetAtt EKSControlPlane.Outputs.EKSName
         ControlPlaneSecurityGroup: !Ref ControlPlaneSecurityGroup
         NodeInstanceProfile: !GetAtt IamStack.Outputs.NodeInstanceProfile
@@ -339,7 +383,7 @@ Resources:
         QSS3KeyPrefix: !Ref QSS3KeyPrefix
         QSS3BucketRegion: !Ref QSS3BucketRegion
         CleanupSecurityGroupDependenciesLambdaArn: !GetAtt FunctionStack.Outputs.CleanupSecurityGroupDependenciesLambdaArn
-        KubeManifestLambdaArn: !GetAtt FunctionStack.Outputs.KubeManifestLambdaArn
+        NodeSGFunctionArn: !GetAtt FunctionStack.Outputs.NodeSGFunctionArn
   BastionSShToNodes:
     Condition: EnableBastion
     Type: "AWS::EC2::SecurityGroupIngress"
@@ -393,11 +437,13 @@ Resources:
         VPCID: !Ref VPCID
         CleanupLoadBalancersRoleArn: !GetAtt IamStack.Outputs.CleanupLoadBalancersRoleArn
         CleanupSecurityGroupDependenciesRoleArn: !GetAtt IamStack.Outputs.CleanupSecurityGroupDependenciesRoleArn
+        CleanupLambdasRoleArn: !GetAtt IamStack.Outputs.CleanupLambdasRoleArn
         GetCallerArnRoleArn: !GetAtt IamStack.Outputs.GetCallerArnRoleArn
         CreateVpcRoleRoleArn: !GetAtt IamStack.Outputs.CreateVpcRoleRoleArn
         RegisterTypeRoleArn: !GetAtt IamStack.Outputs.RegisterTypeRoleArn
-        ExecutionRoleArn: !GetAtt IamStack.Outputs.ExecutionRoleArn
-        LogRoleArn: !GetAtt IamStack.Outputs.LogDeliveryRoleArn
+        RegisterCustomResourceRoleArn: !GetAtt IamStack.Outputs.RegisterCustomResourceRoleArn
+        NodeSGRoleArn: !GetAtt IamStack.Outputs.NodeSGRoleArn
+        FargateProfileRoleArn: !GetAtt IamStack.Outputs.FargateProfileRoleArn
         EKSSubnetIds: !If
           - 3AZDeployment
           - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
@@ -405,8 +451,13 @@ Resources:
             - 2AZDeployment
             - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
             - !Ref PrivateSubnet1ID
+        EKSClusterName: !If [GenerateClusterName, !Ref GenerateName, !Ref EKSClusterName]
   ClusterAutoScalerStack:
     Condition: EnableClusterAutoScaler
+    Metadata:
+      DependsOn:
+       - !Ref ControlPlaneSecurityGroupIngress
+       - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
@@ -414,7 +465,6 @@ Resources:
         - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
-        HelmLambdaArn: !GetAtt FunctionStack.Outputs.HelmLambdaArn
         NodeInstanceRoleName: !GetAtt IamStack.Outputs.NodeInstanceRoleName
         NodeAutoScalingGroup: !GetAtt NodeGroupStack.Outputs.NodeAutoScalingGroup
         EksClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
@@ -422,20 +472,23 @@ Resources:
   EfsStack:
     Condition: EnableEfs
     Type: AWS::CloudFormation::Stack
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
     Properties:
       TemplateURL: !Sub
         - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-efs.template.yaml'
         - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
-        HelmLambdaArn: !GetAtt FunctionStack.Outputs.HelmLambdaArn
         ClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
         NodeGroupSecurityGroup: !GetAtt NodeGroupStack.Outputs.EKSNodeSecurityGroup
         PrivateSubnet1ID: !Ref PrivateSubnet1ID
         PrivateSubnet2ID: !If [2AZDeployment, !Ref PrivateSubnet2ID, !Ref "AWS::NoValue" ]
         PrivateSubnet3ID: !If [3AZDeployment, !Ref PrivateSubnet3ID, !Ref "AWS::NoValue" ]
         PerformanceMode: !Ref EfsPerformanceMode
-        ProvisionedThroughputInMibps: !Ref EfsProvisionedThroughputInMibps
+        EfsProvisionedThroughputInMibps: !Ref EfsProvisionedThroughputInMibps
         ThroughputMode: !Ref EfsThroughputMode
   LambdaZipsBucket:
     Type: AWS::S3::Bucket
@@ -447,11 +500,27 @@ Resources:
     Properties:
       ServiceToken: !GetAtt 'FunctionStack.Outputs.DeleteBucketContentsLambdaArn'
       Bucket: !Ref 'LambdaZipsBucket'
+  CleanupLambdas:
+    Condition: CreateLambdaZipsBucket
+    Type: Custom::CleanupLambdas
+    Version: '1.0'
+    Properties:
+      ServiceToken: !GetAtt 'FunctionStack.Outputs.CleanupLambdasLambdaArn'
+      SecurityGroupId: !Ref ControlPlaneSecurityGroup
   ControlPlaneSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Cluster communication
       VpcId: !Ref VPCID
+  ControlPlaneSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Allow SG members to access k8s api
+      GroupId: !Ref ControlPlaneSecurityGroup
+      SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
   EKSControlPlane:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -493,7 +562,14 @@ Resources:
         EKSClusterLoggingTypes: !Join [ ',', !Ref 'EKSClusterLoggingTypes' ]
         EKSEncryptSecrets: !Ref EKSEncryptSecrets
         EKSEncryptSecretsKmsKeyArn: !Ref EKSEncryptSecretsKmsKeyArn
+        IamOidcProvider: !If [ EnableALBIngressController, 'Enabled', !Ref IamOidcProvider ]
+        EKSClusterName: !If [GenerateClusterName, !Ref GenerateName, !Ref EKSClusterName]
   PrometheusStack:
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !Ref NodeGroupStack
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
     Condition: EnableMonitoringPrometheusGrafana
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -503,8 +579,12 @@ Resources:
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
         ClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
-        HelmLambdaArn: !GetAtt FunctionStack.Outputs.HelmLambdaArn
   GrafanaStack:
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !Ref NodeGroupStack
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
     Condition: EnableMonitoringPrometheusGrafana
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -514,14 +594,112 @@ Resources:
           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
       Parameters:
         ClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
-        HelmLambdaArn: !GetAtt FunctionStack.Outputs.HelmLambdaArn
+  FargateStack:
+    Condition: EnableFargate
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+         - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-fargate-profile.template.yaml'
+         - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+           S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        ClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
+        FargateProfileLambdaArn: !GetAtt FunctionStack.Outputs.FargateProfileLambdaArn
+        FargateExecutionRoleArn: !GetAtt IamStack.Outputs.FargateExecutionRoleArn
+        Namespaces: !Ref FargateNamespaces
+        Labels: !Ref FargateLabels
+        Subnets: !If
+          - 3AZDeployment
+          - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID, !Ref PrivateSubnet3ID ]]
+          - !If
+            - 2AZDeployment
+            - !Join [",", [ !Ref PrivateSubnet1ID, !Ref PrivateSubnet2ID ]]
+            - !Ref PrivateSubnet1ID
+  ALBIngressStack:
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !Ref NodeGroupStack
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
+    Condition: EnableALBIngressController
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/amazon-eks-alb-ingress.template.yaml'
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        OIDCIssuerURLWithoutProtocol:  !Join [ '', !Split [ 'https://', !GetAtt EKSControlPlane.Outputs.OIDCIssuerURL ] ]
+        ClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
+  GenerateNameFunction:
+    Condition: GenerateClusterName
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python3.7
+      Role: !GetAtt IamStack.Outputs.CopyZipsRoleArn
+      Timeout: 900
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import logging
+          from random import choice
+          from string import ascii_uppercase, digits
+          logger = logging.getLogger(__name__)
+          def handler(event, context):
+              logger.debug(event)
+              status = cfnresponse.SUCCESS
+              pid = None
+              try:
+                  if event['RequestType'] == 'Create':
+                      pid = 'EKS-' + ''.join((choice(ascii_uppercase + digits) for i in range(8)))
+                  else:
+                      pid = event['PhysicalResourceId']
+              except Exception:
+                  logging.error('Unhandled exception', exc_info=True)
+                  status = cfnresponse.FAILED
+              finally:
+                  cfnresponse.send(event, context, status, {}, pid)
+  GenerateName:
+    Condition: GenerateClusterName
+    Type: Custom::GenerateName
+    Properties:
+      ServiceToken: !GetAtt 'GenerateNameFunction.Arn'
+  NewRelicStack:
+    Condition: EnableNewRelic
+    Type: AWS::CloudFormation::Stack
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !Ref NodeGroupStack
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}submodules/quickstart-eks-newrelic-infrastructure/templates/new-relic-infrastructure.template.yaml'
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        KubeClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
+        NewRelicLicenseKey: !Ref NewRelicLicenseKey
+  SnykStack:
+    Condition: EnableSnyk
+    Type: AWS::CloudFormation::Stack
+    Metadata:
+      DependsOn:
+        - !Ref ControlPlaneSecurityGroupIngress
+        - !Ref NodeGroupStack
+        - !If [EnableFargate, !Ref FargateNamespaces, !Ref 'AWS::NoValue']
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}submodules/quickstart-eks-snyk/templates/eks-snyk.template.yaml'
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        KubeClusterName: !GetAtt EKSControlPlane.Outputs.EKSName
+        SnykIntegrationId: !Ref SnykIntegrationId
+        Namespace: snyk-monitor
 Outputs:
-  HelmLambdaArn:
-    Value: !GetAtt FunctionStack.Outputs.HelmLambdaArn
-  KubeManifestLambdaArn:
-    Value: !GetAtt FunctionStack.Outputs.KubeManifestLambdaArn
-  KubeGetLambdaArn:
-    Value: !GetAtt FunctionStack.Outputs.KubeGetLambdaArn
   BastionIP:
     Value: !If
       - EnableBastion
@@ -553,3 +731,5 @@ Outputs:
     Value: !GetAtt FunctionStack.Outputs.CleanupSecurityGroupDependenciesLambdaArn
   NodeAutoScalingGroup:
     Value: !GetAtt NodeGroupStack.Outputs.NodeAutoScalingGroup
+  OIDCIssuerURL:
+    Value : !GetAtt EKSControlPlane.Outputs.OIDCIssuerURL
